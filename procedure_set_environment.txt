@@ -1,0 +1,178 @@
+Summary: As a DBA I'm sure you had been in that sticky situtation where the performance of a particular sql suddenly going rogue and utilising all the resources rendering the database slow as a snail. This may have been caused by a stats in the corresponding objects within the query or a change. This will tupically permutate in the form of having a different plan hash value. In which case, if we are confident that the old plan works, then we could easly tell Oracle to used the old plan is used to utilise. In order, to make this tutorial more practical we must first create a test environment. A simple one would suffice after all, it is the concept we are after.
+
+-- Creating the environment
+Note you must login as sydba to perform the following actions 
+
+1. Ensure that automatic capture of baseline is switched off
+	@spl_switch_off_auto_baseline_capture.sql
+
+2. Create a base table with index and subsequently gather table stats
+	@create_base_objects.sql
+
+3. Check the breakdown of data
+	 @check_data_distribution.sql
+
+	 Example Output:
+
+
+	   COUNT(*) OBJECT_TYPE
+	---------- -----------------------
+	     37082 SYNONYM
+	     30170 JAVA CLASS
+	        17 UNDEFINED
+	        16 LOB PARTITION
+	         1 RULE
+
+
+4. Exeute multiple times 
+	cd /media/sf_oracle_scripts/experiments/sql_plan_baselines
+	@execute_multiple_times.sql
+
+5. find the sql_id for the script
+	cd /media/sf_oracle_scripts/performance_tuning
+	@sql_details_vdsql.sql
+	Enter value for sql_text_like: :object_type
+
+	Example Output:
+
+	SQL_TEXT                                           SQL_ID               PLAN_HASH_VALUE CHILD_NUMBER      FETCHES LAST_ACTIVE_TIME            EXECUTIONS AVG_TIME_PER_EXEC_MILI
+	-------------------------------------------------- -------------------- --------------- ------------ ------------ ------------------------- ------------ ----------------------
+	select count (*) from  mev030.test_table where OBJ d235tgdwd6x3n             1343065172            0            2 15-07-2019 20:05:40                  2                   .007
+	select count (*) from  mev030.test_table where OBJ d235tgdwd6x3n             3630984780            1           12 15-07-2019 20:05:44                 12                   .016
+
+6. Check each plan that has been executed 
+	
+	@sql_execution_plan_per_sql_id.sql
+	Enter value for sql_id: d235tgdwd6x3n
+	Enter value for child_cursor: 0
+
+	Example Output:
+	
+	Plan hash value: 1343065172
+
+	-----------------------------------------------------------------------------------------------
+	| Id  | Operation         | Name            | Starts | E-Rows | A-Rows |   A-Time   | Buffers |
+	-----------------------------------------------------------------------------------------------
+	|   0 | SELECT STATEMENT  |                 |      1 |        |      1 |00:00:00.01 |     100 |
+	|   1 |  SORT AGGREGATE   |                 |      1 |      1 |      1 |00:00:00.01 |     100 |
+	|*  2 |   INDEX RANGE SCAN| IDX_OBJECT_TYPE |      1 |      1 |  37082 |00:00:00.01 |     100 |
+	-----------------------------------------------------------------------------------------------
+
+	@sql_execution_plan_per_sql_id.sql
+	Enter value for sql_id: d235tgdwd6x3n
+	Enter value for child_cursor: 1
+
+	Example Output:
+
+	Plan hash value: 3630984780
+
+	---------------------------------------------------------------------------------------------------
+	| Id  | Operation             | Name            | Starts | E-Rows | A-Rows |   A-Time   | Buffers |
+	---------------------------------------------------------------------------------------------------
+	|   0 | SELECT STATEMENT      |                 |      1 |        |      1 |00:00:00.01 |     254 |
+	|   1 |  SORT AGGREGATE       |                 |      1 |      1 |      1 |00:00:00.01 |     254 |
+	|*  2 |   INDEX FAST FULL SCAN| IDX_OBJECT_TYPE |      1 |  37082 |  37082 |00:00:00.01 |     254 |
+	---------------------------------------------------------------------------------------------------
+
+
+7. Create a baseline and fixed plan_hash_value 1343065172 to sql_id d235tgdwd6x3n
+	
+	@spl_create_baseline_fixed_sql_id.sql
+	Enter value for sql_id: d235tgdwd6x3n
+	Enter value for plan_hash_value: 1343065172
+	Plans Loaded: 1
+
+8. Verify that a sql plan baseline has been created for the sql_id
+	 @spl_baseline_details.sql
+
+	Enter value for sql_plan_name: %
+	Enter value for sql_text_like: mev030.test_table
+
+	Example Output:
+
+	SQL_HANDLE                                    PLAN_NAME                                     CREATED              ENABLED    ACCEPTED   FIXED
+	--------------------------------------------- --------------------------------------------- -------------------- ---------- ---------- ----------
+	SQL_9ed07b10968cfe6b                          SQL_PLAN_9xn3v22b8tzmbaf3f2734                15-JUL-19 20.20.44.0 YES        YES        NO
+
+9. Repeat step 4
+
+10. Check the execution times details of plan 1343065172 hash value for sql_id d235tgdwd6x3n
+	cd /media/sf_oracle_scripts/performance_tuning
+	@sql_details_vdsql.sql
+
+	Enter value for sql_text_like: %
+	Enter value for sql_id: d235tgdwd6x3n
+
+	SQL_TEXT                                           SQL_ID               PLAN_HASH_VALUE CHILD_NUMBER      FETCHES LAST_ACTIVE_TIME            EXECUTIONS AVG_TIME_PER_EXEC_MILI
+	-------------------------------------------------- -------------------- --------------- ------------ ------------ ------------------------- ------------ ----------------------
+	select count (*) from  mev030.test_table where OBJ d235tgdwd6x3n             1343065172            0            2 15-07-2019 20:05:40                  2                   .007
+	select count (*) from  mev030.test_table where OBJ d235tgdwd6x3n             1343065172            1           28 15-07-2019 20:27:09                 28                   .013
+
+	Notice  that its just the PHV 1343065172 that is now being used. Prior to creating a baseline, this particular phv has been executed only 12 times. Post creation of the fixed baseline Oracle just kept on 
+	using the plan that we fixed. Alternative, we can also verify this by checking the designated execution plan for sql_id  d235tgdwd6x3n child_number 1
+
+11. Checking the sql_plan_baseline is being used in the execution plan 
+
+	Example Output:
+
+	SQL> @sql_execution_plan_per_sql_id.sql
+	Enter value for sql_id: d235tgdwd6x3n
+	Enter value for child_cursor: 1
+
+	Plan hash value: 1343065172
+
+	-----------------------------------------------------------------------------------------------
+	| Id  | Operation         | Name            | Starts | E-Rows | A-Rows |   A-Time   | Buffers |
+	-----------------------------------------------------------------------------------------------
+	|   0 | SELECT STATEMENT  |                 |      1 |        |      1 |00:00:00.01 |     100 |
+	|   1 |  SORT AGGREGATE   |                 |      1 |      1 |      1 |00:00:00.01 |     100 |
+	|*  2 |   INDEX RANGE SCAN| IDX_OBJECT_TYPE |      1 |      1 |  37082 |00:00:00.01 |     100 |
+	-----------------------------------------------------------------------------------------------
+
+	Predicate Information (identified by operation id):
+	---------------------------------------------------
+
+	   2 - access("OBJECT_TYPE"=:OBJECT_TYPE)
+
+	Note
+	-----
+	   - SQL plan baseline SQL_PLAN_9xn3v22b8tzmbaf3f2734 used for this statement -- You can see that its now being used 
+
+	 
+
+
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
+
+
+
+
+

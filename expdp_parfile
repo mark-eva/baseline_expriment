@@ -1,0 +1,5 @@
+userid=mev030/oracle
+dumpfile=staging.dmp
+logfile=staging.log
+tables=MEV030.STAGING_SQLSET
+directory=SQL_BASELINE_PART2
