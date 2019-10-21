@@ -8,13 +8,14 @@ col SQL_HANDLE for a45
 set lines 200
 alter session set nls_date_format = 'dd-mm-yyyy hh24:mi:ss';
 col CREATED for a20
-
+col CREATOR for a20
 
 show parameter baseline
 
 
 select SQL_HANDLE
 , PLAN_NAME
+, CREATOR
 , CREATED
 , ENABLED
 , ACCEPTED
